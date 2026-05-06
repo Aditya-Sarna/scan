@@ -229,11 +229,29 @@ async def root():
     return {"message": "Multi-Cancer CNN Analyzer", "status": "ok", "datasets": len(ds_mod.DATASETS)}
 
 
+@api_router.get("/dataset-status")
+async def dataset_status():
+    """Per-(dataset, class) real-image counts pulled from Kaggle datasets."""
+    return {"counts": sample_generator.dataset_status()}
+
+
+KAGGLE_SOURCES = {
+    "brain_mri": "masoudnickparvar/brain-tumor-mri-dataset",
+    "lung_ct": "mohamedhanyyy/chest-ctscan-images",
+    "breast_us": "aryashah2k/breast-ultrasound-images-dataset",
+    "skin_derm": "fanconic/skin-cancer-malignant-vs-benign",
+    "kidney_ct": "nazmul0087/ct-kidney-dataset-normal-cyst-tumor-and-stone",
+}
+
+
 @api_router.get("/datasets")
 async def datasets_list():
     out = []
+    counts = sample_generator.dataset_status()
     for d in ds_mod.list_datasets():
         d2 = dict(d)
+        d2["kaggle_source"] = KAGGLE_SOURCES.get(d["id"])
+        d2["sample_counts"] = counts.get(d["id"], {})
         d2["samples"] = [
             {**s, "image_url": f"/api/sample-image/{s['id']}"}
             for s in sample_generator.list_samples_for(d["id"])
@@ -246,14 +264,10 @@ async def datasets_list():
 async def sample_image(sample_id: str):
     p = sample_generator.get_sample_path(sample_id)
     if not p:
-        # try generating on-demand if sample id well-formed
-        if "__" in sample_id:
-            ds_id, cls = sample_id.split("__", 1)
-            if ds_id in ds_mod.DATASETS and cls in ds_mod.DATASETS[ds_id]["classes"]:
-                p = sample_generator.generate_sample(ds_id, cls)
-        if not p:
-            raise HTTPException(404, "sample not found")
-    return FileResponse(str(p), media_type="image/jpeg")
+        raise HTTPException(404, "sample not found")
+    suffix = p.suffix.lower()
+    media = "image/png" if suffix == ".png" else "image/jpeg"
+    return FileResponse(str(p), media_type=media)
 
 
 async def _run_pipeline(dataset_id: str, image_bytes: bytes, image_b64: str, patient_context: Optional[str], skip_validation: bool = False) -> AnalyzeResponse:
@@ -333,9 +347,10 @@ async def analyze(req: AnalyzeRequest):
 
 @api_router.post("/analyze-sample", response_model=AnalyzeResponse)
 async def analyze_sample(req: AnalyzeSampleRequest):
-    if "__" not in req.sample_id:
+    parts = req.sample_id.split("__")
+    if len(parts) < 2:
         raise HTTPException(400, "Bad sample_id")
-    dataset_id, _ = req.sample_id.split("__", 1)
+    dataset_id = parts[0]
     p = sample_generator.get_sample_path(req.sample_id)
     if not p:
         raise HTTPException(404, "sample not found")
