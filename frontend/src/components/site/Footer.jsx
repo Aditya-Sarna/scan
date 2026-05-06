@@ -11,7 +11,7 @@ export const Footer = () => {
                 <div className="grid grid-cols-12 gap-6 md:gap-10">
                     <div className="col-span-12 lg:col-span-7">
                         <div className="text-[10px] uppercase tracking-[0.3em] font-mono text-white/60">
-                            06 / Disclaimer
+                            07 / Disclaimer
                         </div>
                         <h3 className="font-display font-black text-4xl md:text-6xl tracking-tighter leading-[0.92] mt-4">
                             Not a medical&nbsp;device.

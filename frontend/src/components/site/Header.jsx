@@ -16,15 +16,18 @@ export const Header = () => {
                         <div className="w-2 h-2 bg-black group-hover:bg-alert transition-colors" />
                     </div>
                     <div className="flex flex-col leading-none">
-                        <span className="font-display font-black text-[15px] tracking-tighter">
-                            NEURO·MRI
-                        </span>
-                        <span className="text-[9px] uppercase tracking-[0.3em] text-black/60 mt-0.5">
-                            Image Analysis Lab / v1.0
-                        </span>
+                    <span className="font-display font-black text-[15px] tracking-tighter">
+                        NEURO·CNN
+                    </span>
+                    <span className="text-[9px] uppercase tracking-[0.3em] text-black/60 mt-0.5">
+                        Multi-cancer Image Analysis / v1.1
+                    </span>
                     </div>
                 </a>
                 <nav className="hidden md:flex items-center gap-8 text-[11px] uppercase tracking-[0.2em] font-mono">
+                    <a href="#datasets" data-testid="nav-datasets" className="hover:text-alert transition-colors">
+                        Datasets
+                    </a>
                     <a href="#analyzer" data-testid="nav-analyzer" className="hover:text-alert transition-colors">
                         Analyzer
                     </a>
@@ -41,7 +44,7 @@ export const Header = () => {
                 <div className="hidden md:flex items-center gap-2">
                     <span className="w-1.5 h-1.5 bg-ok animate-pulse" />
                     <span className="text-[10px] uppercase tracking-[0.3em] font-mono text-black/70">
-                        Claude · Sonnet 4.5
+                        CNN · MobileNetV3 + Claude 4.5
                     </span>
                 </div>
             </div>

@@ -21,7 +21,7 @@ export const Hero = () => {
                             data-testid="hero-title"
                             className="font-display font-black text-[clamp(46px,8vw,124px)] leading-[0.86] tracking-[-0.05em]"
                         >
-                            Neurological
+                            Multi-cancer
                             <br />
                             image analysis,
                             <br />
@@ -37,10 +37,10 @@ export const Hero = () => {
 
                     <div className="col-span-12 lg:col-span-3 flex flex-col justify-end gap-6">
                         <p className="text-sm leading-relaxed font-mono text-black/70 max-w-sm">
-                            Drop a brain MRI. Our model first verifies the scan
-                            is real, classifies the finding across four
-                            categories, then drafts a structured radiology
-                            report — observations, indicators, and next steps.
+                            Five pipelines across the body — brain, lung,
+                            breast, skin, kidney. A real CNN classifies the
+                            image, Claude drafts the report. Drop a scan or
+                            try a sample.
                         </p>
                         <a
                             href="#analyzer"
@@ -55,10 +55,10 @@ export const Hero = () => {
 
                 <div className="mt-14 md:mt-20 grid grid-cols-2 md:grid-cols-4 border-t border-black/10 divide-x divide-black/10">
                     {[
-                        ["Classes", "04"],
-                        ["Validation", "Vision LLM"],
+                        ["Pipelines", "05"],
+                        ["Body parts", "Brain · Lung · Breast · Skin · Kidney"],
+                        ["Classifier", "MobileNetV3"],
                         ["Reasoning", "Claude 4.5"],
-                        ["Latency", "~6–9s"],
                     ].map(([k, v]) => (
                         <div key={k} className="px-4 md:px-6 py-5">
                             <div className="text-[10px] uppercase tracking-[0.28em] text-black/50 font-mono">
@@ -76,13 +76,14 @@ export const Hero = () => {
             <div className="border-t border-black overflow-hidden bg-black text-white">
                 <div className="ticker-track py-3 text-[11px] uppercase tracking-[0.4em] font-mono">
                     {Array.from({ length: 2 }).flatMap((_, i) => [
-                        "Glioma",
-                        "Meningioma",
-                        "Pituitary",
-                        "No Tumor",
-                        "Axial · Coronal · Sagittal",
-                        "T1 · T2 · FLAIR",
-                        "Reading: AI Radiologist",
+                        "Brain MRI",
+                        "Lung CT",
+                        "Breast Ultrasound",
+                        "Skin Dermoscopy",
+                        "Kidney CT",
+                        "MobileNetV3-Small",
+                        "Cosine prototype head",
+                        "Claude 4.5 report",
                         "Not a medical device",
                     ].map((t, j) => (
                         <span key={`${i}-${j}`} className="px-8 whitespace-nowrap inline-flex items-center gap-8">

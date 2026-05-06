@@ -12,7 +12,7 @@ const fileToBase64 = (file) =>
         fr.readAsDataURL(file);
     });
 
-export const UploadZone = ({ onAnalyze, busy, preview, onClearPreview }) => {
+export const UploadZone = ({ onAnalyze, busy, preview, onClearPreview, dataset }) => {
     const [drag, setDrag] = useState(false);
     const [context, setContext] = useState("");
     const inputRef = useRef(null);
@@ -57,15 +57,21 @@ export const UploadZone = ({ onAnalyze, busy, preview, onClearPreview }) => {
                 <div className="grid grid-cols-12 gap-6 md:gap-10">
                     <div className="col-span-12 lg:col-span-3">
                         <div className="text-[10px] uppercase tracking-[0.3em] font-mono text-black/50 mb-3">
-                            02 / Drop zone
+                            03 / Drop zone
                         </div>
                         <h2 className="font-display font-bold text-3xl md:text-4xl tracking-tight leading-[1]">
                             Drag &amp; drop the&nbsp;scan.
                         </h2>
+                        {dataset && (
+                            <div className="mt-4 inline-flex items-center gap-2 border border-black/15 bg-white px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em]">
+                                <span className="w-1.5 h-1.5 bg-alert" />
+                                Routing to · {dataset.name}
+                            </div>
+                        )}
                         <p className="mt-4 text-sm font-mono text-black/70 leading-relaxed">
-                            JPG, PNG or WEBP up to 10MB. The system first
-                            checks if the image is a brain MRI before drafting
-                            a report.
+                            JPG, PNG or WEBP up to 10MB. The pipeline first
+                            verifies the image type matches the selected
+                            dataset before the CNN runs.
                         </p>
 
                         <label className="block mt-6">

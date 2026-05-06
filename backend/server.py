@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,16 +11,19 @@ import uuid
 import base64
 from pathlib import Path
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Optional, List
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+
+import datasets as ds_mod
+import cnn_model
+import sample_generator
 
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
@@ -38,7 +41,29 @@ logger = logging.getLogger(__name__)
 class AnalyzeRequest(BaseModel):
     image_base64: str
     mime_type: str = "image/jpeg"
-    patient_context: Optional[str] = None  # optional symptoms / age / context
+    dataset_id: str
+    patient_context: Optional[str] = None
+
+
+class AnalyzeSampleRequest(BaseModel):
+    sample_id: str
+    patient_context: Optional[str] = None
+
+
+class TopK(BaseModel):
+    class_id: str
+    label: str
+    probability: float
+    similarity: float
+
+
+class CNNResult(BaseModel):
+    dataset_id: str
+    predicted_class: str
+    predicted_label: str
+    confidence: float
+    top_k: List[TopK]
+    model_arch: str
 
 
 class DoctorAnalysis(BaseModel):
@@ -46,233 +71,277 @@ class DoctorAnalysis(BaseModel):
     observations: List[str]
     key_indicators: List[str]
     recommendations: List[str]
-    urgency: str  # low | moderate | high | critical
+    urgency: str
     differential_notes: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):
     id: str
-    is_mri: bool
+    dataset_id: str
+    dataset_name: str
+    body_part: str
+    modality: str
+    is_valid_image: bool
     rejection_reason: Optional[str] = None
-    classification: Optional[str] = None  # glioma | meningioma | pituitary | no_tumor
-    classification_label: Optional[str] = None  # human readable
-    confidence: Optional[float] = None
-    tumor_detected: Optional[bool] = None
+    cnn: Optional[CNNResult] = None
+    abnormal_detected: Optional[bool] = None
     doctor_analysis: Optional[DoctorAnalysis] = None
     timestamp: str
 
 
-# ---------- Sample Gallery ----------
-SAMPLE_GALLERY = [
-    {
-        "id": "sample-glioma",
-        "label": "Glioma",
-        "category": "glioma",
-        "url": "https://prod.smc.edu/_resources/images/news/2018/2018-09-27-mri-brain-imaging.jpg",
-        "description": "Axial T1 with contrast — suggestive of glioma",
-    },
-    {
-        "id": "sample-meningioma",
-        "label": "Meningioma",
-        "category": "meningioma",
-        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/MRI_meningioma_-_RIGHT_temporal_FLAIR_axial.jpg/640px-MRI_meningioma_-_RIGHT_temporal_FLAIR_axial.jpg",
-        "description": "FLAIR axial — meningioma reference",
-    },
-    {
-        "id": "sample-pituitary",
-        "label": "Pituitary",
-        "category": "pituitary",
-        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Pituitary_macroadenoma_with_hemorrhage.jpg/640px-Pituitary_macroadenoma_with_hemorrhage.jpg",
-        "description": "Sagittal — pituitary region reference",
-    },
-    {
-        "id": "sample-normal",
-        "label": "Normal",
-        "category": "no_tumor",
-        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/MRI_brain_sagittal_section.jpg/640px-MRI_brain_sagittal_section.jpg",
-        "description": "Healthy brain MRI reference",
-    },
-]
-
-
-CLASS_LABELS = {
-    "glioma": "Glioma Tumor",
-    "meningioma": "Meningioma Tumor",
-    "pituitary": "Pituitary Tumor",
-    "no_tumor": "No Tumor",
-}
-
-
-# ---------- Helpers ----------
+# ---------- LLM helpers ----------
 def _extract_json(text: str) -> dict:
-    """Extract first JSON object from a string (handles ```json fences)."""
     if not text:
         raise ValueError("empty response")
-    # remove code fences
     cleaned = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
-    # find first { ... } block
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not match:
         raise ValueError(f"no JSON found in: {text[:200]}")
     return json.loads(match.group(0))
 
 
-SYSTEM_PROMPT = """You are a senior board-certified neuroradiologist reviewing a single uploaded image.
+VALIDATE_PROMPT_TEMPLATE = """You are a strict image-type validator for a medical imaging tool.
 
-Your task has two stages:
+The user is using the "{dataset_name}" pipeline ({modality} of the {body_part}).
+This pipeline only accepts: {accepted_description}.
 
-STAGE 1 — VALIDATION
-Decide whether the image is a real brain MRI scan (axial, coronal, or sagittal slice).
-- If the image is NOT a brain MRI (e.g., a photograph, paper document, screenshot, X-ray of another body part, CT scan, art, blank image, hand-drawn sketch), set "is_mri": false and explain briefly in "rejection_reason".
-- Only mark is_mri:true if the image clearly shows brain anatomy in a typical MRI grayscale slice.
+Decide whether the uploaded image plausibly fits that description.
+Reject anything else (random photos, paper/text, art, screenshots, scans of other body parts or other modalities, blank images).
 
-STAGE 2 — ANALYSIS (only when is_mri:true)
-Classify into exactly one of:
-  "glioma"     — diffuse infiltrative intra-axial mass, often hyperintense on FLAIR/T2
-  "meningioma" — extra-axial dural-based, well-circumscribed, may show dural tail
-  "pituitary"  — sellar/parasellar region mass involving the pituitary fossa
-  "no_tumor"   — healthy brain parenchyma, no mass effect
-
-Provide your "doctor_analysis" as a structured medical mini-report.
-- summary: one short paragraph (2-4 sentences) explaining what you see, written for a patient
-- observations: 3-5 bullet observations (technical, anatomical)
-- key_indicators: 2-4 specific imaging signs you used to reach the classification
-- recommendations: 3-4 clear next-step recommendations (further imaging, specialist referral, follow-up timeline, lifestyle)
-- urgency: one of "low" | "moderate" | "high" | "critical"
-- differential_notes: one sentence on possible alternative diagnoses to consider
-
-Confidence must be a float in [0.50, 0.99]. Be honest — if image quality is poor, lower the confidence.
-
-Return STRICTLY valid JSON, no prose outside JSON, with this exact schema:
-
-{
-  "is_mri": boolean,
-  "rejection_reason": string | null,
-  "classification": "glioma" | "meningioma" | "pituitary" | "no_tumor" | null,
-  "confidence": number | null,
-  "doctor_analysis": {
-    "summary": string,
-    "observations": [string],
-    "key_indicators": [string],
-    "recommendations": [string],
-    "urgency": "low" | "moderate" | "high" | "critical",
-    "differential_notes": string
-  } | null
-}
+Return STRICTLY this JSON, nothing else:
+{{
+  "is_valid": boolean,
+  "reason": string  // 1 sentence
+}}
 """
 
 
-async def analyze_with_claude(image_bytes: bytes, mime_type: str, patient_context: Optional[str]) -> dict:
+REPORT_PROMPT_TEMPLATE = """You are a senior board-certified radiologist writing a draft mini-report.
+
+Pipeline: {dataset_name} ({modality} · {body_part}).
+A small CNN classifier produced this verdict on the attached image:
+
+  Predicted class: {predicted_label}
+  Confidence: {confidence:.2f}
+  Top-3:
+{topk_block}
+
+The image is attached. Use it together with the CNN verdict to write a structured report.
+You may agree, hedge, or note the CNN may be wrong if the image clearly disagrees.
+{patient_block}
+
+Return STRICTLY valid JSON, no prose outside JSON:
+{{
+  "summary": string,            // 2-4 sentences, patient-readable
+  "observations": [string],     // 3-5 technical/anatomical bullets
+  "key_indicators": [string],   // 2-4 imaging signs that support or challenge the CNN verdict
+  "recommendations": [string],  // 3-4 next-step recommendations
+  "urgency": "low" | "moderate" | "high" | "critical",
+  "differential_notes": string  // 1 sentence on alternative diagnoses
+}}
+"""
+
+
+async def _claude_chat(system: str) -> LlmChat:
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "LLM key not configured")
-
-    image_b64 = base64.b64encode(image_bytes).decode()
-
-    chat = LlmChat(
+    return LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=f"mri-{uuid.uuid4()}",
-        system_message=SYSTEM_PROMPT,
+        system_message=system,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
 
-    ctx_text = (
-        "Analyze the attached image per the protocol. "
-        "Return ONLY the JSON object, no markdown, no commentary."
+
+async def validate_image(dataset: dict, image_b64: str) -> dict:
+    sys_p = "You validate medical-imaging uploads. Output JSON only."
+    user_p = VALIDATE_PROMPT_TEMPLATE.format(
+        dataset_name=dataset["name"],
+        modality=dataset["modality"],
+        body_part=dataset["body_part"],
+        accepted_description=dataset["accepted_description"],
     )
-    if patient_context:
-        ctx_text += f"\n\nPatient context provided by user: {patient_context.strip()[:500]}"
-
-    image_content = ImageContent(image_base64=image_b64)
-    message = UserMessage(text=ctx_text, file_contents=[image_content])
-
-    raw = await chat.send_message(message)
-    logger.info(f"Claude raw (truncated): {str(raw)[:300]}")
-
-    if isinstance(raw, dict):
-        return raw
+    chat = await _claude_chat(sys_p)
+    msg = UserMessage(text=user_p, file_contents=[ImageContent(image_base64=image_b64)])
+    raw = await chat.send_message(msg)
     return _extract_json(str(raw))
+
+
+async def doctor_report(dataset: dict, cnn: dict, image_b64: str, patient_context: Optional[str]) -> dict:
+    topk_block = "\n".join(
+        [f"  - {t['label']}: prob={t['probability']:.2f}, sim={t['similarity']:.2f}" for t in cnn["top_k"]]
+    )
+    patient_block = ""
+    if patient_context:
+        patient_block = f"\nPatient context provided by user: {patient_context.strip()[:500]}"
+    sys_p = "You write structured radiology mini-reports. Output strict JSON only."
+    user_p = REPORT_PROMPT_TEMPLATE.format(
+        dataset_name=dataset["name"],
+        modality=dataset["modality"],
+        body_part=dataset["body_part"],
+        predicted_label=cnn["predicted_label"],
+        confidence=cnn["confidence"],
+        topk_block=topk_block,
+        patient_block=patient_block,
+    )
+    chat = await _claude_chat(sys_p)
+    msg = UserMessage(text=user_p, file_contents=[ImageContent(image_base64=image_b64)])
+    raw = await chat.send_message(msg)
+    return _extract_json(str(raw))
+
+
+# ---------- Helpers ----------
+def _parse_b64(image_b64: str) -> bytes:
+    b = image_b64
+    if "," in b and b.strip().startswith("data:"):
+        b = b.split(",", 1)[1]
+    try:
+        return base64.b64decode(b)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid base64 image: {e}")
+
+
+def _normal_class(dataset: dict, predicted_class: str) -> bool:
+    """Return True if the predicted class is the 'normal/no-finding' class."""
+    benign_set = {"no_tumor", "normal", "benign"}
+    return predicted_class in benign_set
+
+
+def _doctor_obj(d: Optional[dict]) -> Optional[DoctorAnalysis]:
+    if not d:
+        return None
+    try:
+        return DoctorAnalysis(
+            summary=str(d.get("summary", "")),
+            observations=[str(x) for x in (d.get("observations") or [])][:8],
+            key_indicators=[str(x) for x in (d.get("key_indicators") or [])][:8],
+            recommendations=[str(x) for x in (d.get("recommendations") or [])][:8],
+            urgency=str(d.get("urgency") or "low"),
+            differential_notes=d.get("differential_notes"),
+        )
+    except Exception as e:
+        logger.warning(f"doctor parse fail: {e}")
+        return None
 
 
 # ---------- Routes ----------
 @api_router.get("/")
 async def root():
-    return {"message": "Neuro MRI Analyzer API", "status": "ok"}
+    return {"message": "Multi-Cancer CNN Analyzer", "status": "ok", "datasets": len(ds_mod.DATASETS)}
 
 
-@api_router.get("/sample-gallery")
-async def sample_gallery():
-    return {"samples": SAMPLE_GALLERY}
+@api_router.get("/datasets")
+async def datasets_list():
+    out = []
+    for d in ds_mod.list_datasets():
+        d2 = dict(d)
+        d2["samples"] = [
+            {**s, "image_url": f"/api/sample-image/{s['id']}"}
+            for s in sample_generator.list_samples_for(d["id"])
+        ]
+        out.append(d2)
+    return {"datasets": out}
+
+
+@api_router.get("/sample-image/{sample_id}")
+async def sample_image(sample_id: str):
+    p = sample_generator.get_sample_path(sample_id)
+    if not p:
+        # try generating on-demand if sample id well-formed
+        if "__" in sample_id:
+            ds_id, cls = sample_id.split("__", 1)
+            if ds_id in ds_mod.DATASETS and cls in ds_mod.DATASETS[ds_id]["classes"]:
+                p = sample_generator.generate_sample(ds_id, cls)
+        if not p:
+            raise HTTPException(404, "sample not found")
+    return FileResponse(str(p), media_type="image/jpeg")
+
+
+async def _run_pipeline(dataset_id: str, image_bytes: bytes, image_b64: str, patient_context: Optional[str], skip_validation: bool = False) -> AnalyzeResponse:
+    dataset = ds_mod.get_dataset(dataset_id)
+    if not dataset:
+        raise HTTPException(400, f"Unknown dataset_id: {dataset_id}")
+
+    # Step 1 — vision validation (skipped for trusted samples)
+    is_valid = True
+    rejection_reason = None
+    if not skip_validation:
+        try:
+            v = await validate_image(dataset, image_b64)
+        except Exception as e:
+            logger.exception("Validate failed")
+            raise HTTPException(502, f"Validation failed: {e}")
+        is_valid = bool(v.get("is_valid"))
+        rejection_reason = v.get("reason") if not is_valid else None
+
+    cnn_obj = None
+    abnormal = None
+    doctor_obj = None
+
+    # Step 2 — CNN classification
+    if is_valid:
+        try:
+            cnn_raw = cnn_model.predict(dataset_id, image_bytes, top_k=3)
+        except Exception as e:
+            logger.exception("CNN failed")
+            raise HTTPException(500, f"CNN inference failed: {e}")
+        cnn_obj = CNNResult(**cnn_raw)
+        abnormal = not _normal_class(dataset, cnn_raw["predicted_class"])
+
+        # Step 3 — Claude doctor report
+        try:
+            d = await doctor_report(dataset, cnn_raw, image_b64, patient_context)
+            doctor_obj = _doctor_obj(d)
+        except Exception as e:
+            logger.warning(f"Doctor report failed: {e}")
+
+    response = AnalyzeResponse(
+        id=str(uuid.uuid4()),
+        dataset_id=dataset_id,
+        dataset_name=dataset["name"],
+        body_part=dataset["body_part"],
+        modality=dataset["modality"],
+        is_valid_image=is_valid,
+        rejection_reason=rejection_reason,
+        cnn=cnn_obj,
+        abnormal_detected=abnormal,
+        doctor_analysis=doctor_obj,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+    try:
+        await db.analyses.insert_one(response.model_dump())
+    except Exception as e:
+        logger.warning(f"persist fail: {e}")
+
+    return response
 
 
 @api_router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(req: AnalyzeRequest):
-    # Decode base64
-    try:
-        b64 = req.image_base64
-        if "," in b64 and b64.strip().startswith("data:"):
-            b64 = b64.split(",", 1)[1]
-        image_bytes = base64.b64decode(b64)
-    except Exception as e:
-        raise HTTPException(400, f"Invalid base64 image: {e}")
+    if req.dataset_id not in ds_mod.DATASETS:
+        raise HTTPException(400, f"Unknown dataset_id: {req.dataset_id}")
 
+    image_bytes = _parse_b64(req.image_base64)
     if len(image_bytes) < 200:
         raise HTTPException(400, "Image payload too small")
     if len(image_bytes) > 12 * 1024 * 1024:
         raise HTTPException(400, "Image too large (max 12MB)")
 
-    mime = req.mime_type or "image/jpeg"
-    if mime not in ("image/jpeg", "image/png", "image/webp", "image/jpg"):
-        mime = "image/jpeg"
+    image_b64 = base64.b64encode(image_bytes).decode()
+    return await _run_pipeline(req.dataset_id, image_bytes, image_b64, req.patient_context, skip_validation=False)
 
-    try:
-        parsed = await analyze_with_claude(image_bytes, mime, req.patient_context)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("LLM analysis failed")
-        raise HTTPException(502, f"Analysis service failed: {e}")
 
-    is_mri = bool(parsed.get("is_mri"))
-    classification = parsed.get("classification") if is_mri else None
-    confidence = parsed.get("confidence") if is_mri else None
-
-    if classification and classification not in CLASS_LABELS:
-        classification = None
-
-    doctor = parsed.get("doctor_analysis")
-    doctor_obj = None
-    if is_mri and doctor:
-        try:
-            doctor_obj = DoctorAnalysis(
-                summary=str(doctor.get("summary", "")),
-                observations=[str(x) for x in (doctor.get("observations") or [])][:8],
-                key_indicators=[str(x) for x in (doctor.get("key_indicators") or [])][:8],
-                recommendations=[str(x) for x in (doctor.get("recommendations") or [])][:8],
-                urgency=str(doctor.get("urgency") or "low"),
-                differential_notes=doctor.get("differential_notes"),
-            )
-        except Exception as e:
-            logger.warning(f"doctor parse fail: {e}")
-
-    response = AnalyzeResponse(
-        id=str(uuid.uuid4()),
-        is_mri=is_mri,
-        rejection_reason=(parsed.get("rejection_reason") if not is_mri else None),
-        classification=classification,
-        classification_label=CLASS_LABELS.get(classification) if classification else None,
-        confidence=confidence,
-        tumor_detected=(classification is not None and classification != "no_tumor"),
-        doctor_analysis=doctor_obj,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
-
-    # Persist (no _id leaks, datetime as string)
-    try:
-        doc = response.model_dump()
-        await db.analyses.insert_one(doc)
-    except Exception as e:
-        logger.warning(f"persist fail: {e}")
-
-    return response
+@api_router.post("/analyze-sample", response_model=AnalyzeResponse)
+async def analyze_sample(req: AnalyzeSampleRequest):
+    if "__" not in req.sample_id:
+        raise HTTPException(400, "Bad sample_id")
+    dataset_id, _ = req.sample_id.split("__", 1)
+    p = sample_generator.get_sample_path(req.sample_id)
+    if not p:
+        raise HTTPException(404, "sample not found")
+    image_bytes = p.read_bytes()
+    image_b64 = base64.b64encode(image_bytes).decode()
+    return await _run_pipeline(dataset_id, image_bytes, image_b64, req.patient_context, skip_validation=True)
 
 
 @api_router.get("/history")
@@ -290,6 +359,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def on_startup():
+    sample_generator.ensure_all_samples()
+    cnn_model.warmup()
+    logger.info(f"CNN warm: {len(ds_mod.DATASETS)} datasets ready")
 
 
 @app.on_event("shutdown")

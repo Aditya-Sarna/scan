@@ -3,6 +3,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import Header from "../components/site/Header";
 import Hero from "../components/site/Hero";
+import DatasetSelector from "../components/site/DatasetSelector";
 import UploadZone from "../components/site/UploadZone";
 import SampleGallery from "../components/site/SampleGallery";
 import AnalysisReport from "../components/site/AnalysisReport";
@@ -12,74 +13,62 @@ import Footer from "../components/site/Footer";
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND}/api`;
 
-// Convert any cross-origin image URL → base64 via canvas (avoids CORS reads)
-async function urlToBase64(url) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-            try {
-                const canvas = document.createElement("canvas");
-                const max = 1024;
-                let w = img.naturalWidth;
-                let h = img.naturalHeight;
-                if (w > max || h > max) {
-                    const r = Math.min(max / w, max / h);
-                    w = Math.round(w * r);
-                    h = Math.round(h * r);
-                }
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(img, 0, 0, w, h);
-                const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-                resolve(dataUrl);
-            } catch (e) {
-                reject(e);
-            }
-        };
-        img.onerror = () => reject(new Error("Failed to load sample image"));
-        img.src = url;
-    });
-}
-
 export default function Analyzer() {
-    const [samples, setSamples] = useState([]);
+    const [datasets, setDatasets] = useState([]);
+    const [selected, setSelected] = useState(null);
     const [busy, setBusy] = useState(false);
-    const [preview, setPreview] = useState(null); // dataURL
+    const [preview, setPreview] = useState(null);
     const [result, setResult] = useState(null);
     const reportRef = useRef(null);
 
     useEffect(() => {
         axios
-            .get(`${API}/sample-gallery`)
-            .then((r) => setSamples(r.data?.samples || []))
-            .catch(() => toast.error("Failed to load sample gallery"));
+            .get(`${API}/datasets`)
+            .then((r) => {
+                const list = r.data?.datasets || [];
+                setDatasets(list);
+                if (list.length && !selected) setSelected(list[0]);
+            })
+            .catch(() => toast.error("Failed to load datasets"));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const scrollToReport = () => {
         setTimeout(() => {
-            document
-                .getElementById("report")
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            document.getElementById("report")?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 120);
     };
 
-    const runAnalysis = async ({ dataUrl, base64, mime, context }) => {
+    const onSelectDataset = (d) => {
+        setSelected(d);
+        setResult(null);
+        setPreview(null);
+    };
+
+    const runUploadAnalysis = async ({ dataUrl, base64, mime, context }) => {
+        if (!selected) {
+            toast.error("Pick a dataset first");
+            return;
+        }
         setBusy(true);
         setResult(null);
         setPreview(dataUrl);
         try {
-            const r = await axios.post(`${API}/analyze`, {
-                image_base64: base64,
-                mime_type: mime || "image/jpeg",
-                patient_context: context || null,
-            }, { timeout: 60000 });
+            const r = await axios.post(
+                `${API}/analyze`,
+                {
+                    image_base64: base64,
+                    mime_type: mime || "image/jpeg",
+                    dataset_id: selected.id,
+                    patient_context: context || null,
+                },
+                { timeout: 90000 }
+            );
             setResult(r.data);
-            if (r.data.is_mri) {
-                toast.success(`Diagnosis drafted — ${r.data.classification_label}`);
+            if (r.data.is_valid_image) {
+                toast.success(`CNN: ${r.data.cnn?.predicted_label}`);
             } else {
-                toast.error("Image rejected — not a brain MRI");
+                toast.error("Image rejected — wrong type for this pipeline");
             }
             scrollToReport();
         } catch (e) {
@@ -93,18 +82,28 @@ export default function Analyzer() {
 
     const pickSample = async (sample) => {
         setBusy(true);
+        setResult(null);
+        // Use proxied URL from backend → guaranteed to load (no CORS)
+        const imgUrl = `${BACKEND}${sample.image_url}`;
+        setPreview(imgUrl);
         try {
-            toast.message("Loading sample…", { duration: 1200 });
-            const dataUrl = await urlToBase64(sample.url);
-            await runAnalysis({
-                dataUrl,
-                base64: dataUrl.split(",")[1],
-                mime: "image/jpeg",
-                context: `Reference sample: ${sample.label}`,
-            });
+            toast.message("Running CNN…", { duration: 1200 });
+            const r = await axios.post(
+                `${API}/analyze-sample`,
+                {
+                    sample_id: sample.id,
+                    patient_context: `Reference sample: ${sample.label}`,
+                },
+                { timeout: 90000 }
+            );
+            setResult(r.data);
+            toast.success(`CNN: ${r.data.cnn?.predicted_label}`);
+            scrollToReport();
         } catch (e) {
             console.error(e);
-            toast.error("Could not load that sample. Try uploading manually.");
+            const msg = e.response?.data?.detail || e.message || "Analysis failed";
+            toast.error(typeof msg === "string" ? msg : "Analysis failed");
+        } finally {
             setBusy(false);
         }
     };
@@ -119,8 +118,14 @@ export default function Analyzer() {
         <div className="min-h-screen bg-white text-black">
             <Header />
             <Hero />
+            <DatasetSelector
+                datasets={datasets}
+                selected={selected}
+                onSelect={onSelectDataset}
+            />
             <UploadZone
-                onAnalyze={runAnalysis}
+                dataset={selected}
+                onAnalyze={runUploadAnalysis}
                 busy={busy}
                 preview={preview}
                 onClearPreview={() => {
@@ -133,7 +138,7 @@ export default function Analyzer() {
                     <AnalysisReport result={result} image={preview} onReset={reset} />
                 </div>
             )}
-            <SampleGallery samples={samples} onPick={pickSample} busy={busy} />
+            <SampleGallery dataset={selected} onPick={pickSample} busy={busy} />
             <HowItWorks />
             <Footer />
         </div>

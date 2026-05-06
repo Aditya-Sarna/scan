@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Activity, FileText, Stethoscope } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Activity, FileText, Stethoscope, Cpu } from "lucide-react";
 
 const URGENCY = {
     low: { label: "LOW", color: "text-ok", bg: "bg-ok/10", border: "border-ok/30" },
@@ -27,7 +27,7 @@ const Typewriter = ({ text, speed = 8 }) => {
 export const AnalysisReport = ({ result, image, onReset }) => {
     if (!result) return null;
 
-    if (!result.is_mri) {
+    if (!result.is_valid_image) {
         return (
             <section
                 id="report"
@@ -38,10 +38,11 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                     <div className="grid grid-cols-12 gap-6 md:gap-10">
                         <div className="col-span-12 lg:col-span-3">
                             <div className="text-[10px] uppercase tracking-[0.3em] font-mono text-alert mb-3">
-                                04 / Rejected
+                                05 / Rejected
                             </div>
                             <h2 className="font-display font-bold text-3xl md:text-4xl tracking-tight leading-[1]">
-                                Not a&nbsp;brain MRI.
+                                Wrong image for the&nbsp;
+                                <span className="italic font-light">{result.body_part}</span>&nbsp;pipeline.
                             </h2>
                         </div>
                         <div className="col-span-12 lg:col-span-9">
@@ -52,29 +53,15 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                                     </div>
                                     <div className="flex-1">
                                         <div className="text-[10px] uppercase tracking-[0.3em] font-mono text-alert">
-                                            Validation failed
+                                            Validation failed · {result.dataset_name}
                                         </div>
                                         <h3 className="font-display font-bold text-2xl mt-2 tracking-tight">
                                             We can&apos;t analyze this image.
                                         </h3>
                                         <p className="font-mono text-sm text-black/80 mt-3 leading-relaxed max-w-2xl">
                                             {result.rejection_reason ||
-                                                "The uploaded file does not appear to be a brain MRI scan. To prevent unsafe predictions, the analyzer only processes verified MRI imagery."}
+                                                "The uploaded file does not match the selected pipeline. Try a different image, or switch to a different dataset above."}
                                         </p>
-                                        <div className="mt-6 grid sm:grid-cols-2 gap-3 text-xs font-mono">
-                                            <div className="border border-black/15 bg-white p-3">
-                                                <span className="text-black/50 uppercase tracking-[0.2em] text-[10px]">
-                                                    What works
-                                                </span>
-                                                <div className="mt-1.5">Axial / coronal / sagittal MRI slices, T1 / T2 / FLAIR, grayscale.</div>
-                                            </div>
-                                            <div className="border border-alert/40 bg-white p-3">
-                                                <span className="text-alert uppercase tracking-[0.2em] text-[10px]">
-                                                    What doesn&apos;t
-                                                </span>
-                                                <div className="mt-1.5">Photos, paper, X-rays, CT, art, screenshots, or non-brain MRIs.</div>
-                                            </div>
-                                        </div>
                                         <button
                                             type="button"
                                             onClick={onReset}
@@ -93,9 +80,10 @@ export const AnalysisReport = ({ result, image, onReset }) => {
         );
     }
 
-    const tumor = result.tumor_detected;
+    const cnn = result.cnn;
+    const abnormal = !!result.abnormal_detected;
     const urgency = URGENCY[result.doctor_analysis?.urgency || "low"] || URGENCY.low;
-    const conf = result.confidence ? Math.round(result.confidence * 100) : null;
+    const conf = cnn?.confidence != null ? Math.round(cnn.confidence * 100) : null;
 
     return (
         <section
@@ -107,7 +95,7 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                 <div className="grid grid-cols-12 gap-6 md:gap-10">
                     <div className="col-span-12 lg:col-span-3">
                         <div className="text-[10px] uppercase tracking-[0.3em] font-mono text-black/50 mb-3">
-                            04 / Diagnostic draft
+                            05 / Diagnostic draft
                         </div>
                         <h2 className="font-display font-bold text-3xl md:text-4xl tracking-tight leading-[1]">
                             Radiology&nbsp;<span className="italic font-light">report</span>.
@@ -116,12 +104,16 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                             <FileText className="w-3 h-3" />
                             ID&nbsp;{result.id?.slice(0, 8)}
                         </div>
+                        <div className="mt-3 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-black/60 border border-black/10 px-3 py-1.5">
+                            <Cpu className="w-3 h-3" />
+                            {result.dataset_name}
+                        </div>
                     </div>
 
                     <div className="col-span-12 lg:col-span-9">
                         <div className="grid grid-cols-1 md:grid-cols-2 border border-black/15">
                             {/* Image side */}
-                            <div className="relative bg-black aspect-square md:aspect-auto md:min-h-[500px]">
+                            <div className="relative bg-black aspect-square md:aspect-auto md:min-h-[560px]">
                                 {image && (
                                     <img
                                         src={image}
@@ -131,9 +123,33 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                                     />
                                 )}
                                 <div className="absolute top-3 left-3 right-3 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.25em] text-white/80">
-                                    <span>// scan</span>
+                                    <span>// {result.modality} · {result.body_part}</span>
                                     <span>{new Date(result.timestamp).toLocaleTimeString()}</span>
                                 </div>
+                                {/* Top-K bar */}
+                                {cnn?.top_k?.length > 0 && (
+                                    <div className="absolute bottom-3 left-3 right-3 bg-white/95 border border-black p-3" data-testid="topk-bar">
+                                        <div className="text-[9px] uppercase tracking-[0.3em] font-mono text-black/55 mb-2">
+                                            CNN · Top-{cnn.top_k.length}
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            {cnn.top_k.map((t) => (
+                                                <div key={t.class_id} className="flex items-center gap-3">
+                                                    <span className="font-mono text-[11px] w-32 truncate">{t.label}</span>
+                                                    <div className="flex-1 h-1.5 bg-black/10 relative">
+                                                        <div
+                                                            className="absolute top-0 left-0 h-full bg-black"
+                                                            style={{ width: `${Math.round(t.probability * 100)}%` }}
+                                                        />
+                                                    </div>
+                                                    <span className="font-mono tnum text-[11px] w-10 text-right">
+                                                        {Math.round(t.probability * 100)}%
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Report side */}
@@ -141,22 +157,22 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                                 <div className="flex items-start justify-between gap-4 pb-5 border-b border-black/10">
                                     <div>
                                         <div className="text-[10px] uppercase tracking-[0.28em] font-mono text-black/50">
-                                            Diagnosis
+                                            CNN Diagnosis
                                         </div>
                                         <div className="font-display font-bold text-3xl md:text-4xl tracking-tight mt-1.5">
-                                            {result.classification_label}
+                                            {cnn?.predicted_label}
                                         </div>
                                         <div className="mt-3 flex flex-wrap items-center gap-2">
                                             <span
-                                                data-testid="tumor-badge"
+                                                data-testid="abnormal-badge"
                                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.18em] border ${
-                                                    tumor
+                                                    abnormal
                                                         ? "bg-alert/10 text-alert border-alert/30"
                                                         : "bg-ok/10 text-ok border-ok/30"
                                                 }`}
                                             >
-                                                {tumor ? <AlertTriangle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
-                                                {tumor ? "Tumor detected" : "No tumor"}
+                                                {abnormal ? <AlertTriangle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
+                                                {abnormal ? "Abnormal" : "Normal"}
                                             </span>
                                             <span
                                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.18em] border ${urgency.bg} ${urgency.color} ${urgency.border}`}
@@ -178,43 +194,47 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                                     )}
                                 </div>
 
-                                {/* Summary */}
-                                <div className="py-5 border-b border-black/10">
-                                    <div className="text-[10px] uppercase tracking-[0.28em] font-mono text-black/50 mb-2">
-                                        Summary
-                                    </div>
-                                    <p data-testid="report-summary" className="font-display text-lg leading-snug tracking-tight">
-                                        <Typewriter text={result.doctor_analysis?.summary || ""} />
-                                    </p>
+                                <div className="py-3 text-[10px] font-mono uppercase tracking-[0.22em] text-black/40 border-b border-black/10">
+                                    Model · {cnn?.model_arch}
                                 </div>
 
-                                {/* Sections */}
-                                <ReportList
-                                    title="Observations"
-                                    items={result.doctor_analysis?.observations}
-                                    testid="observations-list"
-                                />
-                                <ReportList
-                                    title="Key indicators"
-                                    items={result.doctor_analysis?.key_indicators}
-                                    testid="indicators-list"
-                                />
-                                <ReportList
-                                    title="Recommendations"
-                                    items={result.doctor_analysis?.recommendations}
-                                    icon={<Stethoscope className="w-3 h-3" />}
-                                    testid="recommendations-list"
-                                />
-
-                                {result.doctor_analysis?.differential_notes && (
-                                    <div className="py-5 border-t border-black/10 mt-1">
-                                        <div className="text-[10px] uppercase tracking-[0.28em] font-mono text-black/50 mb-2">
-                                            Differential notes
+                                {result.doctor_analysis && (
+                                    <>
+                                        <div className="py-5 border-b border-black/10">
+                                            <div className="text-[10px] uppercase tracking-[0.28em] font-mono text-black/50 mb-2">
+                                                Summary
+                                            </div>
+                                            <p data-testid="report-summary" className="font-display text-lg leading-snug tracking-tight">
+                                                <Typewriter text={result.doctor_analysis.summary || ""} />
+                                            </p>
                                         </div>
-                                        <p className="font-mono text-xs leading-relaxed text-black/80">
-                                            {result.doctor_analysis.differential_notes}
-                                        </p>
-                                    </div>
+                                        <ReportList
+                                            title="Observations"
+                                            items={result.doctor_analysis.observations}
+                                            testid="observations-list"
+                                        />
+                                        <ReportList
+                                            title="Key indicators"
+                                            items={result.doctor_analysis.key_indicators}
+                                            testid="indicators-list"
+                                        />
+                                        <ReportList
+                                            title="Recommendations"
+                                            items={result.doctor_analysis.recommendations}
+                                            icon={<Stethoscope className="w-3 h-3" />}
+                                            testid="recommendations-list"
+                                        />
+                                        {result.doctor_analysis.differential_notes && (
+                                            <div className="py-5 border-t border-black/10 mt-1">
+                                                <div className="text-[10px] uppercase tracking-[0.28em] font-mono text-black/50 mb-2">
+                                                    Differential notes
+                                                </div>
+                                                <p className="font-mono text-xs leading-relaxed text-black/80">
+                                                    {result.doctor_analysis.differential_notes}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
 
                                 <div className="pt-6 flex items-center justify-between gap-3">
