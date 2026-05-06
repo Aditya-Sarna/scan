@@ -1,0 +1,42 @@
+[
+  {
+    "dataset_id": "brain_mri",
+    "status": "ok",
+    "val_acc": 0.8774999976158142,
+    "train_n": 1600,
+    "val_n": 800,
+    "kaggle_slug": "masoudnickparvar/brain-tumor-mri-dataset"
+  },
+  {
+    "dataset_id": "lung_ct",
+    "status": "ok",
+    "val_acc": 0.7810945510864258,
+    "train_n": 799,
+    "val_n": 201,
+    "kaggle_slug": "mohamedhanyyy/chest-ctscan-images"
+  },
+  {
+    "dataset_id": "breast_us",
+    "status": "ok",
+    "val_acc": 1.0,
+    "train_n": 743,
+    "val_n": 37,
+    "kaggle_slug": "aryashah2k/breast-ultrasound-images-dataset"
+  },
+  {
+    "dataset_id": "skin_derm",
+    "status": "ok",
+    "val_acc": 0.875,
+    "train_n": 800,
+    "val_n": 400,
+    "kaggle_slug": "fanconic/skin-cancer-malignant-vs-benign"
+  },
+  {
+    "dataset_id": "kidney_ct",
+    "status": "ok",
+    "val_acc": 0.9150000214576721,
+    "train_n": 1600,
+    "val_n": 800,
+    "kaggle_slug": "nazmul0087/ct-kidney-dataset-normal-cyst-tumor-and-stone"
+  }
+]

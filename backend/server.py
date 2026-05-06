@@ -248,10 +248,27 @@ KAGGLE_SOURCES = {
 async def datasets_list():
     out = []
     counts = sample_generator.dataset_status()
+    # Training accuracies (if available)
+    summary_path = ROOT_DIR / "weights" / "summary.json"
+    train_info = {}
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text())
+            for row in summary:
+                train_info[row.get("dataset_id")] = row
+        except Exception:
+            pass
     for d in ds_mod.list_datasets():
         d2 = dict(d)
         d2["kaggle_source"] = KAGGLE_SOURCES.get(d["id"])
         d2["sample_counts"] = counts.get(d["id"], {})
+        info = train_info.get(d["id"], {})
+        d2["train_info"] = {
+            "val_acc": info.get("val_acc"),
+            "train_n": info.get("train_n"),
+            "val_n": info.get("val_n"),
+            "status": info.get("status"),
+        }
         d2["samples"] = [
             {**s, "image_url": f"/api/sample-image/{s['id']}"}
             for s in sample_generator.list_samples_for(d["id"])

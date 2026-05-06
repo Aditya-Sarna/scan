@@ -1,21 +1,20 @@
-"""CNN inference engine.
+"""CNN inference engine — trained MLP heads on frozen MobileNetV3-Small features.
 
-Pretrained MobileNetV3-Small (ImageNet) → 576-D feature.
-Per dataset, we keep a *feature bank* of every real Kaggle training image's feature
-vector, plus its class label. Inference uses weighted k-NN voting:
+Each dataset has its own trained classifier head at /app/backend/weights/{ds_id}.pt,
+produced by trainer.py on real Kaggle images.
 
-  features = backbone(image)
-  sims     = bank @ features                # cosine over L2-normalised feats
-  top-K    = k nearest neighbours
-  vote     = softmax(sims_top * temp) per neighbour, summed by class
+Inference:
+  x = preprocess(image)
+  feat = backbone(x)           # frozen MobileNetV3-Small (ImageNet) → 576-D
+  logits = head[ds_id](feat)   # trained MLP → num_classes
+  probs = softmax(logits)
 
-This is a real CNN-feature-based classifier that uses every available training
-image rather than collapsing each class to a single mean. It is dramatically
-more robust than a single-prototype head when classes are visually diverse.
+This is real supervised classification on real-world medical imagery.
 """
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 from typing import Dict, List
 
@@ -27,13 +26,14 @@ import torchvision.transforms as T
 from PIL import Image
 
 from datasets import DATASETS
-from sample_generator import generate_sample, generate_variants, ensure_all_samples, class_image_paths
+from sample_generator import ensure_all_samples
 
 
-IMG_SIZE = 224
+ROOT = Path(__file__).parent
+WEIGHTS_DIR = ROOT / "weights"
+
 DEVICE = torch.device("cpu")
-KNN_K = 9               # neighbours considered per query
-KNN_TEMP = 24.0         # softmax temperature on similarities
+FEATURE_DIM = 576
 
 
 def _build_backbone() -> nn.Module:
@@ -46,15 +46,25 @@ def _build_backbone() -> nn.Module:
     return m
 
 
+class Head(nn.Module):
+    def __init__(self, num_classes: int, in_dim: int = FEATURE_DIM, hidden: int = 256, dropout: float = 0.3):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(hidden, num_classes),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
 _backbone: nn.Module | None = None
 _transform: T.Compose | None = None
-FEATURE_DIM = 576
-
-# Per-dataset feature bank
-_bank: Dict[str, torch.Tensor] = {}        # dataset_id -> [N, 576]
-_bank_labels: Dict[str, List[int]] = {}    # dataset_id -> [N] class indices
-_class_order: Dict[str, List[str]] = {}    # dataset_id -> ordered class ids
-_prototypes: Dict[str, torch.Tensor] = {}  # kept for backward compat (mean per class)
+_heads: Dict[str, Head] = {}
+_class_order: Dict[str, List[str]] = {}
+_val_accs: Dict[str, float] = {}
 
 
 def _get_backbone() -> nn.Module:
@@ -79,84 +89,58 @@ def _extract(image_bytes: bytes) -> torch.Tensor:
     return F.normalize(feat, dim=1).squeeze(0)
 
 
-def _build_bank(dataset_id: str) -> tuple[torch.Tensor, List[int], List[str], torch.Tensor]:
-    ds = DATASETS[dataset_id]
-    classes = ds["classes"]
-    feats: List[torch.Tensor] = []
-    labels: List[int] = []
-    proto_means: List[torch.Tensor] = []
-    for ci, cls in enumerate(classes):
-        # Use up to 25 real images per class for the bank (excluding the 1st = display thumb)
-        paths = class_image_paths(dataset_id, cls)[:25]
-        if not paths:
-            continue
-        cls_feats: List[torch.Tensor] = []
-        for path in paths:
-            with open(path, "rb") as f:
-                cls_feats.append(_extract(f.read()))
-        for fv in cls_feats:
-            feats.append(fv)
-            labels.append(ci)
-        proto_means.append(F.normalize(torch.stack(cls_feats).mean(0), dim=0))
-    bank = torch.stack(feats, dim=0) if feats else torch.zeros(0, FEATURE_DIM)
-    proto = torch.stack(proto_means, dim=0) if proto_means else torch.zeros(0, FEATURE_DIM)
-    return bank, labels, classes, proto
+def _load_head(dataset_id: str) -> bool:
+    ckpt_path = WEIGHTS_DIR / f"{dataset_id}.pt"
+    if not ckpt_path.exists():
+        return False
+    ckpt = torch.load(str(ckpt_path), map_location=DEVICE, weights_only=False)
+    classes = ckpt["class_order"]
+    head = Head(num_classes=len(classes))
+    head.load_state_dict(ckpt["state_dict"])
+    head.eval()
+    _heads[dataset_id] = head
+    _class_order[dataset_id] = classes
+    _val_accs[dataset_id] = float(ckpt.get("val_acc", 0.0))
+    return True
 
 
 def warmup() -> None:
     ensure_all_samples()
     _get_backbone()
     for ds_id in DATASETS.keys():
-        bank, labels, classes, proto = _build_bank(ds_id)
-        _bank[ds_id] = bank
-        _bank_labels[ds_id] = labels
-        _class_order[ds_id] = classes
-        _prototypes[ds_id] = proto
+        ok = _load_head(ds_id)
+        if not ok:
+            print(f"[cnn_model] WARNING: no trained head for {ds_id}; predictions disabled")
 
 
 def predict(dataset_id: str, image_bytes: bytes, top_k: int = 3) -> dict:
-    if dataset_id not in _bank:
+    if dataset_id not in _heads:
         warmup()
-    if dataset_id not in _bank or _bank[dataset_id].shape[0] == 0:
-        raise ValueError(f"No feature bank for dataset_id: {dataset_id}")
+    if dataset_id not in _heads:
+        raise ValueError(f"No trained head for dataset_id: {dataset_id}")
 
-    bank = _bank[dataset_id]
-    labels = _bank_labels[dataset_id]
+    head = _heads[dataset_id]
     classes = _class_order[dataset_id]
     K = len(classes)
 
-    feat = _extract(image_bytes)
-    sims_all = (bank @ feat).clamp(-1.0, 1.0)  # [N]
+    feat = _extract(image_bytes)           # [576]
+    with torch.no_grad():
+        logits = head(feat.unsqueeze(0))   # [1, K]
+        probs = F.softmax(logits, dim=1).squeeze(0)  # [K]
 
-    # Weighted k-NN vote
-    k = min(KNN_K, sims_all.shape[0])
-    top_sims, top_idx = torch.topk(sims_all, k=k)
-    weights = F.softmax(top_sims * KNN_TEMP, dim=0)  # [k]
+    order = torch.argsort(probs, descending=True).tolist()
 
-    class_scores = torch.zeros(K)
-    for w, idx in zip(weights, top_idx):
-        class_scores[labels[idx.item()]] += w
-    # Normalise to probabilities
-    class_probs = class_scores / class_scores.sum().clamp_min(1e-9)
-
-    # Per-class peak similarity (used in top-k display)
-    peak_sims = torch.full((K,), -1.0)
-    for i in range(sims_all.shape[0]):
-        c = labels[i]
-        if sims_all[i] > peak_sims[c]:
-            peak_sims[c] = sims_all[i]
-
-    order = torch.argsort(class_probs, descending=True).tolist()
     top: list[dict] = []
     for idx in order[: max(top_k, 1)]:
         top.append({
             "class_id": classes[idx],
             "label": DATASETS[dataset_id]["class_labels"][classes[idx]],
-            "probability": float(class_probs[idx].item()),
-            "similarity": float(peak_sims[idx].item()),
+            "probability": float(probs[idx].item()),
+            "similarity": float(logits[0, idx].item()),  # raw logit, handy for debugging
         })
 
-    confidence = float(class_probs[order[0]].item())
+    confidence = float(probs[order[0]].item())
+    train_val_acc = _val_accs.get(dataset_id, 0.0)
 
     return {
         "dataset_id": dataset_id,
@@ -164,6 +148,6 @@ def predict(dataset_id: str, image_bytes: bytes, top_k: int = 3) -> dict:
         "predicted_label": DATASETS[dataset_id]["class_labels"][classes[order[0]]],
         "confidence": confidence,
         "top_k": top,
-        "logits": [float(class_probs[i].item()) for i in range(K)],
-        "model_arch": f"MobileNetV3-Small (ImageNet, frozen) + weighted k-NN (k={k}, bank={bank.shape[0]})",
+        "logits": [float(probs[i].item()) for i in range(K)],
+        "model_arch": f"MobileNetV3-Small (ImageNet, frozen) → Linear-256-ReLU-Dropout-Linear head (Kaggle fine-tuned, val_acc={train_val_acc:.2f})",
     }

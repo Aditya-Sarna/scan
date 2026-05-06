@@ -57,7 +57,7 @@ export const Hero = () => {
                     {[
                         ["Pipelines", "05"],
                         ["Body parts", "Brain · Lung · Breast · Skin · Kidney"],
-                        ["Classifier", "MobileNetV3"],
+                        ["Classifier", "Trained CNN"],
                         ["Reasoning", "Claude 4.5"],
                     ].map(([k, v]) => (
                         <div key={k} className="px-4 md:px-6 py-5">
@@ -98,3 +98,4 @@ export const Hero = () => {
 };
 
 export default Hero;
+Hero;

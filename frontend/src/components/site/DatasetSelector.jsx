@@ -28,9 +28,10 @@ export const DatasetSelector = ({ datasets, selected, onSelect }) => {
                     </div>
                     <div className="col-span-12 lg:col-span-7 lg:col-start-6">
                         <p className="text-sm font-mono text-black/70 leading-relaxed">
-                            Each pipeline pairs a body-part-specific class set
-                            with a CNN prototype head. Switch tabs to route
-                            your image through a different model.
+                            Each pipeline is a real CNN trained on the matching
+                            Kaggle dataset. Frozen MobileNetV3-Small backbone
+                            + a fine-tuned MLP head per task. Switch tabs to
+                            route your image through a different model.
                         </p>
                     </div>
                 </div>
@@ -72,9 +73,19 @@ export const DatasetSelector = ({ datasets, selected, onSelect }) => {
                                 <div className={`mt-3 text-[11px] font-mono leading-snug ${active ? "text-white/80" : "text-black/65"}`}>
                                     {d.tagline}
                                 </div>
-                                <div className={`mt-4 text-[10px] font-mono uppercase tracking-[0.25em] ${active ? "text-white/60" : "text-black/40"}`}>
-                                    {d.classes?.length || 0} classes
+                                <div className={`mt-4 pt-3 border-t ${active ? "border-white/20" : "border-black/10"} flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.2em] ${active ? "text-white/60" : "text-black/40"}`}>
+                                    <span>{d.classes?.length || 0} classes</span>
+                                    {d.train_info?.val_acc != null && (
+                                        <span className={active ? "text-white" : "text-alert"}>
+                                            {Math.round(d.train_info.val_acc * 100)}% acc
+                                        </span>
+                                    )}
                                 </div>
+                                {d.train_info?.train_n != null && (
+                                    <div className={`mt-1 text-[9px] font-mono ${active ? "text-white/50" : "text-black/40"}`}>
+                                        trained · n={d.train_info.train_n}
+                                    </div>
+                                )}
                             </button>
                         );
                     })}
