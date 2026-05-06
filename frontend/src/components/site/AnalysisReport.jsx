@@ -83,7 +83,6 @@ export const AnalysisReport = ({ result, image, onReset }) => {
     const cnn = result.cnn;
     const abnormal = !!result.abnormal_detected;
     const urgency = URGENCY[result.doctor_analysis?.urgency || "low"] || URGENCY.low;
-    const conf = cnn?.confidence != null ? Math.round(cnn.confidence * 100) : null;
 
     return (
         <section
@@ -135,16 +134,13 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                                         <div className="space-y-1.5">
                                             {cnn.top_k.map((t) => (
                                                 <div key={t.class_id} className="flex items-center gap-3">
-                                                    <span className="font-mono text-[11px] w-32 truncate">{t.label}</span>
+                                                    <span className="font-mono text-[11px] w-40 truncate">{t.label}</span>
                                                     <div className="flex-1 h-1.5 bg-black/10 relative">
                                                         <div
                                                             className="absolute top-0 left-0 h-full bg-black"
                                                             style={{ width: `${Math.round(t.probability * 100)}%` }}
                                                         />
                                                     </div>
-                                                    <span className="font-mono tnum text-[11px] w-10 text-right">
-                                                        {Math.round(t.probability * 100)}%
-                                                    </span>
                                                 </div>
                                             ))}
                                         </div>
@@ -182,16 +178,6 @@ export const AnalysisReport = ({ result, image, onReset }) => {
                                             </span>
                                         </div>
                                     </div>
-                                    {conf != null && (
-                                        <div className="text-right">
-                                            <div className="text-[10px] uppercase tracking-[0.28em] font-mono text-black/50">
-                                                Confidence
-                                            </div>
-                                            <div className="font-display font-black text-4xl tnum mt-0.5">
-                                                {conf}<span className="text-black/40 text-2xl">%</span>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
 
                                 <div className="py-3 text-[10px] font-mono uppercase tracking-[0.22em] text-black/40 border-b border-black/10">
