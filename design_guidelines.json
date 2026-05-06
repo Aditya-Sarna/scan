@@ -1,0 +1,113 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4: Swiss & High-Contrast",
+  "colors": {
+    "primary_background": "#FFFFFF",
+    "secondary_background": "#F5F5F5",
+    "primary_text": "#000000",
+    "secondary_text": "#666666",
+    "border": "#E5E5E5",
+    "accent_alert": "#E63946",
+    "accent_success": "#10B981",
+    "glass_background": "rgba(255, 255, 255, 0.7)",
+    "glass_border": "rgba(0, 0, 0, 0.1)"
+  },
+  "typography": {
+    "heading_font": "Schibsted Grotesk, sans-serif",
+    "body_font": "Geist Mono, monospace",
+    "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-black",
+    "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-bold",
+    "h3": "text-xl sm:text-2xl font-bold",
+    "h4": "text-lg sm:text-xl font-bold",
+    "body": "text-base leading-relaxed font-mono",
+    "small": "text-sm uppercase tracking-[0.2em]"
+  },
+  "spacing_and_layout": {
+    "container_padding": "p-6 sm:p-8 md:p-12 lg:p-16",
+    "gap_large": "gap-12 md:gap-16",
+    "gap_medium": "gap-6 md:gap-8",
+    "border_radius": "rounded-none",
+    "shadows": "shadow-none",
+    "borders": "border border-black/10"
+  },
+  "components": {
+    "buttons": "rounded-none border-2 border-black bg-black text-white hover:bg-white hover:text-black transition-colors px-6 py-3 font-mono text-sm uppercase tracking-wider",
+    "cards": "rounded-none border border-black/10 bg-white p-6 md:p-8",
+    "drag_drop_zone": "rounded-none border-2 border-dashed border-black/20 bg-[#FAFAFA] hover:border-black/50 hover:bg-[#F0F0F0] transition-all p-12 flex flex-col items-center justify-center cursor-pointer min-h-[300px]",
+    "mri_gallery_grid": "grid grid-cols-2 md:grid-cols-4 gap-4",
+    "status_badge_alert": "inline-flex items-center px-2.5 py-0.5 rounded-none text-xs font-mono font-bold bg-[#E63946]/10 text-[#E63946] border border-[#E63946]/20",
+    "status_badge_success": "inline-flex items-center px-2.5 py-0.5 rounded-none text-xs font-mono font-bold bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/20"
+  },
+  "animations": {
+    "hover_state": "transition-transform duration-300 ease-out hover:-translate-y-1",
+    "scanning_effect": "absolute inset-0 bg-gradient-to-b from-transparent via-black/10 to-transparent animate-scan"
+  },
+  "media": {
+    "images": [
+      {
+        "category": "gallery_glioma",
+        "url": "https://images.unsplash.com/photo-1758691463165-ca9b5bc2b28a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwxfHxicmFpbiUyMG1yaSUyMHNjYW58ZW58MHx8fHwxNzc4MTAwODg2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Sample MRI - Glioma placeholder"
+      },
+      {
+        "category": "gallery_meningioma",
+        "url": "https://images.unsplash.com/photo-1758691462667-f2fb90a067ff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHw0fHxicmFpbiUyMG1yaSUyMHNjYW58ZW58MHx8fHwxNzc4MTAwODg2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Sample MRI - Meningioma placeholder"
+      },
+      {
+        "category": "gallery_pituitary",
+        "url": "https://images.unsplash.com/photo-1758691463569-66de91d76452?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwyfHxicmFpbiUyMG1yaSUyMHNjYW58ZW58MHx8fHwxNzc4MTAwODg2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Sample MRI - Pituitary placeholder"
+      },
+      {
+        "category": "gallery_normal",
+        "url": "https://images.unsplash.com/photo-1758691463110-697a814b2033?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwzfHxicmFpbiUyMG1yaSUyMHNjYW58ZW58MHx8fHwxNzc4MTAwODg2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Sample MRI - Normal placeholder"
+      },
+      {
+        "category": "rejection_example",
+        "url": "https://images.unsplash.com/photo-1617565085015-13cb9d366120?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxjcnVtcGxlZCUyMHBhcGVyfGVufDB8fHx8MTc3ODEwMDkwNnww&ixlib=rb-4.1.0&q=85",
+        "description": "Non-medical image (Crumpled paper)"
+      }
+    ]
+  },
+  "pages": {
+    "Home": {
+      "sections": [
+        {
+          "name": "Header",
+          "description": "Sticky top nav with crystal glassmorphism effect. Logo on left, Minimalist nav links on right."
+        },
+        {
+          "name": "Hero",
+          "description": "Massive Schibsted Grotesk typography asserting authority. Text: 'Neurological Image Analysis.' Subtext in Geist Mono. Focus on the drag-and-drop zone."
+        },
+        {
+          "name": "Upload Zone",
+          "description": "A premium dropzone taking up significant real-estate. Border-dashed, subtle gray background, micro-interactions on drag hover. Includes 'or select from sample gallery' link."
+        },
+        {
+          "name": "Sample Gallery",
+          "description": "Bento-grid of 4 sample MRIs (Glioma, Meningioma, Pituitary, Normal). Clicking one auto-fills the upload zone and starts analysis."
+        },
+        {
+          "name": "Analysis View (Active State)",
+          "description": "Split screen or modal overlay. Left: The scanned image with a 'scanning' overlay animation. Right: The Editorial Medical Report (RAG response) typed out in real-time. Tumor status highlighted in Accent Red/Green."
+        },
+        {
+          "name": "Disclaimer",
+          "description": "Footer area with clinical mono-spaced text stating this is an AI tool and not medical advice."
+        }
+      ]
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install and configure Schibsted Grotesk (or Hanken Grotesk/Bricolage Grotesque) for headings and Geist Mono (or JetBrains Mono) for body text via Google Fonts/Fontsource.",
+    "Implement the 'Swiss & High-Contrast' aesthetic: Use absolute stark white background, no gradients. Rely heavily on 1px borders (#E5E5E5) and strict grid alignment.",
+    "The UI must feel like a high-end medical journal or an elite developer tool. DO NOT use rounded corners (use rounded-none everywhere, including buttons and cards).",
+    "For the drag-and-drop zone, implement a smooth Framer Motion transition for the 'drag active' state.",
+    "When rejecting a non-MRI image, display a clean, high-contrast toast or inline error message with the 'crumpled paper' image as a visual reference of what not to upload.",
+    "When displaying the RAG analysis, format it like a medical report using mono fonts for labels (e.g., 'DIAGNOSIS:', 'CONFIDENCE:') and grotesque for the prose.",
+    "Add 'data-testid' to all interactive elements."
+  ]
+}
