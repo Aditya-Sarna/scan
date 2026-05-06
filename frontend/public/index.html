@@ -45,20 +45,17 @@
                     e.preventDefault();
                 }
             }, true);
-            // Continuously remove the injected Emergent badge
+            // Persistently remove the runtime-injected Emergent badge
             (function () {
+                var SEL = '#emergent-badge, a[href*="emergent.sh"], a[href*="utm_source=emergent-badge"]';
                 function killBadge() {
-                    document.querySelectorAll(
-                        '#emergent-badge, a[href*="emergent.sh"], a[href*="utm_source=emergent-badge"]'
-                    ).forEach(function (el) {
-                        el.remove();
+                    document.querySelectorAll(SEL).forEach(function (el) {
+                        try { el.remove(); } catch (err) {}
                     });
                 }
+                // Run continuously — the badge is re-injected by an external script
+                setInterval(killBadge, 150);
                 killBadge();
-                new MutationObserver(killBadge).observe(document.documentElement, {
-                    childList: true,
-                    subtree: true,
-                });
                 document.addEventListener("DOMContentLoaded", killBadge);
                 window.addEventListener("load", killBadge);
             })();
